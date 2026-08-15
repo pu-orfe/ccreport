@@ -1,0 +1,38 @@
+# Python environment and cache files
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Packaging build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Local configuration and credentials
+.env
+.env.deploy
+*.pem
+service-account*.json
+
+# Local state: the deploy ledger is committed, working values beside it are not.
+.ccreport/*.local.json
+
+# Locally generated report bundles and rendered artifacts
+bundles/
+artifacts/
+scratch/
+
+# System files
+.DS_Store
+
+# Agent files
+.claude/
+CLAUDE.md
+.ralph/

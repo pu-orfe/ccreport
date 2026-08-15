@@ -1,0 +1,130 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ccreport"
+version = "0.1.0"
+description = "Faculty-facing monthly receipt collection: connect read-only mailboxes, select receipts, justify, and hand administrators a consistent bundle"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE.md" }
+authors = [
+    { name = "The Trustees of Princeton University" },
+]
+keywords = ["expense-report", "receipts", "microsoft-graph", "gmail", "imap", "concur"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial",
+]
+
+# Base dependencies only. The CLI, the heuristics, and the bundle writer import
+# with nothing beyond these; the web app and the cloud connectors are extras, so
+# `pip install ccreport` stays runnable on a laptop that will never talk to Azure.
+dependencies = [
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.2,<3",
+    "httpx>=0.27,<1",
+    "Jinja2>=3.1,<4",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.111,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "python-multipart>=0.0.9",
+    "itsdangerous>=2.1",
+]
+db = [
+    "SQLAlchemy>=2.0,<3",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.1",
+]
+render = [
+    "weasyprint>=62",
+    "nh3>=0.2.17",
+    "pillow>=10.3",
+    "pillow-heif>=0.16",
+]
+azure = [
+    "azure-storage-blob>=12.19",
+    "azure-identity>=1.16",
+    "azure-keyvault-keys>=4.9",
+    "cryptography>=42",
+]
+connectors = [
+    "msal>=1.28",
+    "google-auth>=2.29",
+    "google-auth-oauthlib>=1.2",
+    "google-api-python-client>=2.130",
+]
+# Everything the deployed container needs.
+app = ["ccreport[web,db,render,azure,connectors]"]
+# Optional second renderer; the container installs it, a laptop need not.
+playwright = ["playwright>=1.44"]
+test = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+ccreport = "ccreport.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/pu-orfe/ccreport"
+Source = "https://github.com/pu-orfe/ccreport"
+Issues = "https://github.com/pu-orfe/ccreport/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ccreport"]
+artifacts = [
+    "src/ccreport/web/static/**",
+    "src/ccreport/web/templates/**",
+    "src/ccreport/auth/templates/**",
+    "src/ccreport/migrations/**",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/deploy",
+    "/docs",
+    "/README.md",
+    "/LICENSE.md",
+    "/pyproject.toml",
+    "/.env.example",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "live: hits a real provider; requires credentials and is skipped by default",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: asserts are the point, and placeholder credentials are fixtures.
+"tests/**" = ["S101", "S105", "S106"]
