@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production-teardown
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
