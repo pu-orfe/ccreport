@@ -191,3 +191,15 @@ def test_a_report_redirect_is_rebuilt_from_integers_not_from_the_url() -> None:
     for hostile in ("2026-07/../../evil", "\\evil.example", "2026-7"):
         with pytest.raises(CCReportError):
             _report_url(hostile)
+
+
+@pytest.mark.parametrize(
+    "destination",
+    ["https://evil.example/steal", "//evil.example", "/\\evil.example", "/reports/2026-07/../x"],
+)
+def test_redirect_refuses_any_destination_that_is_not_one_of_our_pages(destination: str) -> None:
+    """Callers pass literals today; this makes that a property of the function."""
+    from ccreport.web.app import _redirect
+
+    response = _redirect(destination, error="something went wrong")
+    assert response.headers["location"].startswith("/?err=")

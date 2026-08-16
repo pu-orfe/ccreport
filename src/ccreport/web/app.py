@@ -93,6 +93,9 @@ _CSRF_SALT = "ccreport-form"
 #: The only shape of referer path that carries information worth keeping: which
 #: month the user was looking at. The period is re-matched, never passed through.
 _REPORT_PATH_RE = re.compile(r"^/reports/(?P<period>\d{4}-\d{2})(?:/.*)?$")
+#: Every page a redirect may land on. Redirects go to our own pages only, and
+#: nothing built from a request can widen this.
+_SAFE_REDIRECT_RE = re.compile(r"/(?:accounts|admin)?|/reports/\d{4}-\d{2}")
 CSRF_MAX_AGE_SECONDS = 12 * 3600
 
 
@@ -239,7 +242,18 @@ def _report_url(period: str) -> str:
 
 
 def _redirect(url: str, *, message: str | None = None, error: str | None = None) -> RedirectResponse:
+    """Redirect to one of this application's own pages.
+
+    The destination is checked against the small set of pages that exist, so a
+    future caller cannot turn a redirect into an off-site one by passing
+    something it built from a request. Callers already pass literals; this makes
+    that a property of the function rather than a habit of its callers.
+    """
     from urllib.parse import quote
+
+    if not _SAFE_REDIRECT_RE.fullmatch(url):
+        logger.warning("refusing to redirect to %r; sending the browser home instead", url)
+        url = "/"
 
     parts = []
     if message:
