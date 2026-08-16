@@ -103,3 +103,80 @@ def test_a_connector_uses_the_shared_pool_by_default() -> None:
     connector = GraphConnector("token")
     assert connector._http is shared_client()
     close_shared_client()
+
+
+@pytest.mark.parametrize(
+    "referer",
+    [
+        "/\\evil.example",          # browsers treat /\ as scheme-relative
+        "//evil.example/steal",
+        "https://evil.example/steal",
+        "/nonsense/../../etc",
+        "/reports/2026-07/../../accounts",
+    ],
+)
+def test_no_referer_can_steer_a_redirect_off_our_own_pages(referer: str) -> None:
+    """Every destination is a literal in `_return_to`, not filtered attacker text."""
+    import re as _re
+
+    from ccreport.web.app import _return_to
+
+    destination = _return_to(_fake_request("/reports/2026-07/bundle.zip", referer))
+    assert _re.fullmatch(r"/|/accounts|/admin|/reports/\d{4}-\d{2}", destination), destination
+    assert "evil.example" not in destination
+
+
+@pytest.mark.parametrize(
+    ("referer", "expected"),
+    [
+        ("https://ccreport.example.edu/reports/2026-07", "/reports/2026-07"),
+        ("https://ccreport.example.edu/accounts?msg=hi", "/accounts"),
+        ("https://ccreport.example.edu/admin", "/admin"),
+        ("", "/"),
+    ],
+)
+def test_a_local_referer_returns_to_the_canonical_page(referer: str, expected: str) -> None:
+    from ccreport.web.app import _return_to
+
+    request = _fake_request("/reports/2026-07/bundle.zip", referer)
+    assert _return_to(request) == expected
+
+
+def _fake_request(path: str, referer: str):
+    from starlette.datastructures import URL, Headers
+
+    class _Request:
+        url = URL(f"https://ccreport.example.edu{path}")
+        headers = Headers({"referer": referer} if referer else {})
+
+    return _Request()
+
+
+def test_printed_output_can_never_carry_a_credential() -> None:
+    """One command that forgets is one credential in somebody's scrollback."""
+    from ccreport.cli import REDACTED, redact
+
+    cleaned = redact(
+        {
+            "app_password": "hunter2",
+            "refresh_token": "1//0erefresh",
+            "client_secret": "shhh",
+            "accounts": [{"password": "p", "address": "ada@princeton.edu"}],
+        }
+    )
+    assert cleaned["app_password"] == REDACTED
+    assert cleaned["refresh_token"] == REDACTED
+    assert cleaned["client_secret"] == REDACTED
+    assert cleaned["accounts"][0]["password"] == REDACTED
+    assert cleaned["accounts"][0]["address"] == "ada@princeton.edu"
+    assert "hunter2" not in repr(cleaned)
+
+
+def test_redaction_matches_key_names_not_values() -> None:
+    """`authorization_url` is the whole point of `account connect`; it must survive."""
+    from ccreport.cli import redact
+
+    url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?code_challenge=abc"
+    cleaned = redact({"authorization_url": url, "state": "signed-state", "provider": "graph"})
+    assert cleaned["authorization_url"] == url
+    assert cleaned["state"] == "signed-state"

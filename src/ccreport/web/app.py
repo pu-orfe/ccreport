@@ -20,6 +20,7 @@ access.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -89,6 +90,9 @@ logger = logging.getLogger("ccreport.web")
 
 _HERE = Path(__file__).resolve().parent
 _CSRF_SALT = "ccreport-form"
+#: The only shape of referer path that carries information worth keeping: which
+#: month the user was looking at. The period is re-matched, never passed through.
+_REPORT_PATH_RE = re.compile(r"^/reports/(?P<period>\d{4}-\d{2})(?:/.*)?$")
 CSRF_MAX_AGE_SECONDS = 12 * 3600
 
 
@@ -192,23 +196,34 @@ def _connector_for(request: Request, session: Session, account: MailAccount, set
 def _return_to(request: Request) -> str:
     """Where to send a browser after a failed request.
 
-    The ``Referer`` header is chosen by the client, so only its **path** is used,
-    and only when it is a local path. Redirecting to a whole referer would make
-    every error page an open redirect that any site could aim wherever it liked.
+    The ``Referer`` header is chosen by the client, so it is used to *choose
+    among our own pages*, never as a destination. Every value returned here is a
+    literal in this function — at most with a ``YYYY-MM`` period substituted in —
+    so no character an attacker controls can reach the ``Location`` header.
+
+    Filtering the string instead was not enough. A referer path of ``/\\evil.com``
+    survives an "it starts with a single slash" check and is then treated by
+    browsers as scheme-relative, which is an open redirect with extra steps.
 
     A referer pointing at the page that just failed is discarded too: sending a
-    failed GET back to itself is a redirect loop, and the browser gives up long
-    after the user has.
+    failed GET back to itself is a redirect loop the browser abandons long after
+    the user has.
     """
     referer = urlsplit(request.headers.get("referer") or "")
     if referer.netloc and referer.netloc != request.url.netloc:
-        return "/"  # another site sent them here; it does not get to choose where they go
-    path = referer.path or "/"
-    if not path.startswith("/") or path.startswith("//"):
-        return "/"
+        return "/"  # another site sent them here; it does not choose where they go next
+    path = referer.path
     if path == request.url.path:
-        return "/"  # a failed GET sent back to itself is a redirect loop
-    return path
+        return "/"
+
+    match = _REPORT_PATH_RE.match(path)
+    if match:
+        return f"/reports/{match.group('period')}"
+    if path.startswith("/accounts"):
+        return "/accounts"
+    if path.startswith("/admin"):
+        return "/admin"
+    return "/"
 
 
 def _redirect(url: str, *, message: str | None = None, error: str | None = None) -> RedirectResponse:

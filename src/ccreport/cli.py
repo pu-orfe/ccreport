@@ -22,6 +22,7 @@ import getpass
 import json
 import logging
 import os
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -64,12 +65,47 @@ def _configure_logging(verbose: int, settings: Settings) -> None:
     )
 
 
+#: Keys whose values never belong on a terminal, in a pipe, or in a shell's
+#: history file. Matched on the key, so it holds however a caller builds a dict.
+_SECRETISH = re.compile(r"password|secret|credential|passphrase|private", re.IGNORECASE)
+_SECRET_KEYS = frozenset(
+    {"token", "access_token", "refresh_token", "api_key", "authorization", "cookie"}
+)
+REDACTED = "***"
+
+
+def redact(value: Any) -> Any:
+    """Replace anything that looks like a credential with ``***``.
+
+    Applied to everything printed, rather than trusting each command to hand
+    over a clean dict. One command that forgets is one credential in somebody's
+    scrollback, and the commands that handle credentials — ``account connect``
+    above all — are exactly the ones whose output people paste into tickets.
+
+    Key names are matched, never values, so ``authorization_url`` survives while
+    ``app_password`` does not.
+    """
+    if isinstance(value, dict):
+        return {
+            key: (
+                REDACTED
+                if _SECRETISH.search(str(key)) or str(key).lower() in _SECRET_KEYS
+                else redact(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [redact(item) for item in value]
+    return value
+
+
 def emit(data: Any, output: str = "json") -> None:
     """Print a result. JSON on stdout, or a terse human rendering."""
+    safe = redact(data)
     if output == "json":
-        print(json.dumps(data, indent=2, default=str))
+        print(json.dumps(safe, indent=2, default=str))
         return
-    print(_as_text(data))
+    print(_as_text(safe))
 
 
 def _as_text(data: Any, indent: int = 0) -> str:
