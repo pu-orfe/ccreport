@@ -180,3 +180,14 @@ def test_redaction_matches_key_names_not_values() -> None:
     cleaned = redact({"authorization_url": url, "state": "signed-state", "provider": "graph"})
     assert cleaned["authorization_url"] == url
     assert cleaned["state"] == "signed-state"
+
+
+def test_a_report_redirect_is_rebuilt_from_integers_not_from_the_url() -> None:
+    """The period in a route is caller-chosen text; it never reaches Location."""
+    from ccreport.errors import CCReportError
+    from ccreport.web.app import _report_url
+
+    assert _report_url("2026-07") == "/reports/2026-07"
+    for hostile in ("2026-07/../../evil", "\\evil.example", "2026-7"):
+        with pytest.raises(CCReportError):
+            _report_url(hostile)

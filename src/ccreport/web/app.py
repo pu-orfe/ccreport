@@ -69,7 +69,7 @@ from ..oauth import (
     new_code_verifier,
     redirect_uri_for,
 )
-from ..period import available_periods, clamp_period, period_label
+from ..period import available_periods, clamp_period, format_period, parse_period, period_label
 from ..reports import (
     add_item,
     admin_list_reports,
@@ -224,6 +224,18 @@ def _return_to(request: Request) -> str:
     if path.startswith("/admin"):
         return "/admin"
     return "/"
+
+
+def _report_url(period: str) -> str:
+    """The URL of a month's page, rebuilt from integers.
+
+    The ``period`` in a route is a URL segment, which is to say a string the
+    caller chose. Interpolating it straight back into a redirect puts caller
+    text in a ``Location`` header; parsing it and reformatting from the parsed
+    year and month cannot.
+    """
+    year, month = parse_period(period)
+    return f"/reports/{format_period(year, month)}"
 
 
 def _redirect(url: str, *, message: str | None = None, error: str | None = None) -> RedirectResponse:
@@ -567,9 +579,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             connector=_connector_for(request, session, account, settings), settings=settings,
         )
         if header is None:
-            return _redirect(f"/reports/{period}", error="that message is no longer in this month")
+            return _redirect(_report_url(period), error="that message is no longer in this month")
         add_item(session, user, report, account, header)
-        return _redirect(f"/reports/{period}", message="added; a justification is still needed")
+        return _redirect(_report_url(period), message="added; a justification is still needed")
 
     @app.post("/reports/{period}/items/{item_id}/justify")
     def report_justify(
@@ -584,7 +596,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         check_csrf(request, user.upn, csrf_token)
         report = get_report(session, user, period)
         justify_item(session, user, report, item_id, text)
-        return _redirect(f"/reports/{period}", message="justification saved")
+        return _redirect(_report_url(period), message="justification saved")
 
     @app.post("/reports/{period}/items/{item_id}/remove")
     def report_remove(
@@ -598,7 +610,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         check_csrf(request, user.upn, csrf_token)
         report = get_report(session, user, period)
         remove_item(session, user, report, item_id)
-        return _redirect(f"/reports/{period}", message="removed")
+        return _redirect(_report_url(period), message="removed")
 
     @app.post("/reports/{period}/submit")
     def report_submit(
@@ -618,7 +630,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             open_connector=lambda account: _connector_for(request, session, account, settings),
             settings=settings,
         )
-        return _redirect(f"/reports/{period}", message="submitted; the bundle is ready to download")
+        return _redirect(_report_url(period), message="submitted; the bundle is ready to download")
 
     @app.get("/reports/{period}/bundle.zip")
     def report_bundle(
