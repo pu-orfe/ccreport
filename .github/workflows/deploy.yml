@@ -24,7 +24,7 @@ jobs:
     if: vars.AZURE_WEBAPP_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' && vars.ACR_NAME != ''
     steps:
       - uses: actions/checkout@v7
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
