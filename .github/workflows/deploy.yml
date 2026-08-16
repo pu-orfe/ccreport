@@ -23,7 +23,7 @@ jobs:
     # push teaches people to ignore red marks.
     if: vars.AZURE_WEBAPP_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' && vars.ACR_NAME != ''
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
