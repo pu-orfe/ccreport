@@ -15,11 +15,18 @@ import calendar
 import datetime as _dt
 import re
 
+from .errors import CCReportError
+
 _PERIOD_RE = re.compile(r"^(\d{4})-(\d{2})$")
 
 
-class InvalidPeriod(ValueError):
-    """The period string is malformed or outside the permitted window."""
+class InvalidPeriod(CCReportError, ValueError):
+    """The period string is malformed or outside the permitted window.
+
+    Both bases are deliberate: callers that catch :class:`ValueError` around
+    parsing keep working, and the CLI's single ``CCReportError`` handler turns it
+    into a one-line message instead of a traceback.
+    """
 
 
 def parse_period(value: str) -> tuple[int, int]:

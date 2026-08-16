@@ -21,8 +21,10 @@ dist/
 *.pem
 service-account*.json
 
-# Local state: the deploy ledger is committed, working values beside it are not.
-.ccreport/*.local.json
+# Local state. The deploy ledger records which steps a *particular* environment
+# has completed, and `deploy` resumes from it — so committing one would make a
+# fresh clone skip provisioning steps it has never run.
+.ccreport/
 
 # Locally generated report bundles and rendered artifacts
 bundles/

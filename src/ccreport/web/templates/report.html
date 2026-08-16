@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}{{ period_title }} — ccreport{% endblock %}
+{% block content %}
+
+<h1>{{ period_title }}</h1>
+
+<nav class="months inline">
+  {% for p in periods %}
+    <a class="month small {% if p == period %}current{% endif %}" href="/reports/{{ p }}">{{ p }}</a>
+  {% endfor %}
+</nav>
+
+{% if warning %}<div class="banner bad">{{ warning }}</div>{% endif %}
+
+<section class="selected">
+  <h2>Selected receipts
+    <span class="muted">({{ report['items'] }} selected{% if report.unjustified %}, {{ report.unjustified }} still need a justification{% endif %})</span>
+  </h2>
+
+  {% if report.receipts %}
+  <table>
+    <thead><tr><th>#</th><th>Date</th><th>Vendor</th><th>Amount</th><th>Message</th><th>Justification</th><th></th></tr></thead>
+    <tbody>
+    {% for item in report.receipts %}
+      <tr class="{{ 'needs' if not item.justification }}">
+        <td class="num">{{ item.index }}</td>
+        <td class="small">{{ (item.date or '')[:10] }}</td>
+        <td>{{ item.vendor or '—' }}</td>
+        <td class="num">{{ item.amount or '' }} {{ item.currency or '' }}</td>
+        <td class="small">{{ item.subject or '(no subject)' }}<br><span class="muted">{{ item['from'] or '' }}</span></td>
+        <td>
+          {% if report.status == 'draft' %}
+          <form method="post" action="/reports/{{ period }}/items/{{ item.id }}/justify" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <textarea name="text" rows="2" required
+                      placeholder="Why was this spent?">{{ item.justification or '' }}</textarea>
+            <button type="submit">Save</button>
+          </form>
+          {% else %}{{ item.justification }}{% endif %}
+        </td>
+        <td class="actions">
+          {% if report.status == 'draft' %}
+          <form method="post" action="/reports/{{ period }}/items/{{ item.id }}/remove">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="danger">Remove</button>
+          </form>
+          {% else %}
+            {% for artifact in item.artifacts %}<div class="small">{{ artifact.filename }}</div>{% endfor %}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Nothing selected yet. Pick messages from the list below.</p>
+  {% endif %}
+
+  {% if report.status == 'draft' %}
+  <form method="post" action="/reports/{{ period }}/submit" class="submit"
+        onsubmit="return confirm('Submit {{ period }}? Attachments are saved as they are, messages without one are rendered to PDF, and the report is then frozen.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="primary" {% if not report.receipts or report.unjustified %}disabled{% endif %}>
+      Submit {{ period }}
+    </button>
+    {% if report.unjustified %}<span class="muted">Every receipt needs a justification first.</span>{% endif %}
+  </form>
+  {% else %}
+  <p class="banner ok">
+    Submitted {{ (report.submitted_at or '')[:19] }} UTC.
+    <a href="/reports/{{ period }}/bundle.zip">Download the bundle</a>
+  </p>
+  {% endif %}
+</section>
+
+<section class="browse">
+  <h2>Your mail for this month</h2>
+
+  {% if accounts %}
+  <form method="get" action="/reports/{{ period }}" class="filters">
+    <label>Mailbox
+      <select name="account_id">
+        {% for account in accounts %}
+        <option value="{{ account.id }}" {% if selected_account and account.id == selected_account.id %}selected{% endif %}>
+          {{ account.address }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Subject <input type="search" name="subject" value="{{ filters.subject }}"></label>
+    <label>Sender <input type="search" name="sender" value="{{ filters.sender }}"></label>
+    <label>Show
+      <select name="show">
+        <option value="receipts" {% if filters.show != 'all' %}selected{% endif %}>likely receipts</option>
+        <option value="all" {% if filters.show == 'all' %}selected{% endif %}>everything</option>
+      </select>
+    </label>
+    <button type="submit">Apply</button>
+  </form>
+  {% endif %}
+
+  {% if browse %}
+  <p class="muted small">
+    {{ browse.messages | length }} shown of {{ browse.total }} in the month;
+    {{ browse.likely_receipts }} look like receipts.
+    Highlighting never hides anything — switch "Show" to everything to see the rest.
+  </p>
+  <table>
+    <thead><tr><th></th><th>Date</th><th>From</th><th>Subject</th><th>Signals</th><th></th></tr></thead>
+    <tbody>
+    {% for message in browse.messages %}
+      <tr class="{{ 'likely' if message.likely_receipt }}">
+        <td class="num small">{{ message.receipt_score }}</td>
+        <td class="small">{{ (message.received_at or '')[:10] }}</td>
+        <td class="small">{{ message.from_name or message['from'] or '' }}</td>
+        <td class="small">
+          {{ message.subject or '(no subject)' }}
+          {% if message.attachments %}
+            <div class="muted">
+              {% for attachment in message.attachments %}{{ attachment.filename }}{% if not loop.last %}, {% endif %}{% endfor %}
+            </div>
+          {% endif %}
+        </td>
+        <td class="small muted">
+          {{ message.vendor_hint or '' }}
+          {% if message.amount_hint_cents %}&middot; {{ '%.2f'|format(message.amount_hint_cents / 100) }} {{ message.currency_hint }}{% endif %}
+        </td>
+        <td>
+          {% if message.id in chosen %}
+            <span class="tag">selected</span>
+          {% elif report.status == 'draft' %}
+          <form method="post" action="/reports/{{ period }}/items">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="account_id" value="{{ selected_account.id }}">
+            <input type="hidden" name="message_id" value="{{ message.id }}">
+            <button type="submit">Select</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% elif accounts and not warning %}
+  <p class="muted">Nothing to show for this month.</p>
+  {% elif not accounts %}
+  <p class="muted">Connect a mailbox first: <a href="/accounts">Mailboxes</a>.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ruff-unit-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip build
+          pip install -e ".[app,test]"
+      - name: Ruff
+        run: ruff check src tests
+      - name: Unit tests
+        run: pytest tests/unit tests/render
+      - name: Package build
+        run: python -m build
+      - name: Launcher forwarding smoke test
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zsh
+          ./ccreport --help >/dev/null || ./ccreport >/dev/null
+
+  integration-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install docker-compose command
+        run: |
+          if ! command -v docker-compose >/dev/null 2>&1; then
+            sudo ln -s /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+          fi
+      - name: Compose config parses
+        run: docker-compose config
+      - name: Integration tests
+        run: docker-compose run --rm integration-tests

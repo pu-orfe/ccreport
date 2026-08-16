@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Mailboxes — ccreport{% endblock %}
+{% block content %}
+
+<h1>Connected mailboxes</h1>
+<p class="muted">
+  Signing in to ccreport does not give it access to any mailbox. Each mailbox is
+  connected separately, read-only, and can be disconnected here or revoked from
+  your provider's own account page.
+</p>
+
+{% if accounts %}
+<table>
+  <thead>
+    <tr><th>Mailbox</th><th>Provider</th><th>Status</th><th>Scopes</th><th>Connected</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for account in accounts %}
+    <tr>
+      <td><strong>{{ account.address }}</strong></td>
+      <td>{{ account.provider }}</td>
+      <td>
+        <span class="tag {{ 'bad' if account.status != 'connected' }}">{{ account.status }}</span>
+        {% if account.status_detail %}<div class="muted small">{{ account.status_detail }}</div>{% endif %}
+      </td>
+      <td class="small">{{ account.scopes or '—' }}</td>
+      <td class="small">{{ (account.connected_at or '')[:10] }}</td>
+      <td class="actions">
+        <form method="post" action="/accounts/{{ account.id }}/test">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">Test</button>
+        </form>
+        <form method="post" action="/accounts/{{ account.id }}/disconnect"
+              onsubmit="return confirm('Disconnect {{ account.address }}? The stored credential is deleted.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="danger">Disconnect</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No mailbox is connected.</p>
+{% endif %}
+
+<h2>Connect a mailbox</h2>
+<div class="cards">
+  {% for provider in posture.providers %}
+  <div class="card">
+    <h3>{{ provider.label }}</h3>
+    <p class="small muted">{{ provider.detail }}</p>
+    {% if provider.provider == 'imap' %}
+      {% if provider.configured %}
+      <form method="post" action="/accounts/imap" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>Address <input type="email" name="address" required placeholder="you@gmail.com"></label>
+        <label>App password <input type="password" name="app_password" required autocomplete="off"></label>
+        <label>Host <input type="text" name="host" value="{{ settings.imap_default_host }}"></label>
+        <label>Port <input type="number" name="port" value="{{ settings.imap_default_port }}"></label>
+        <button type="submit">Connect</button>
+      </form>
+      <p class="small muted">
+        An app password, not your account password. ccreport issues EXAMINE and
+        BODY.PEEK, so reading a message does not mark it as read.
+      </p>
+      {% else %}
+      <p class="small bad">The IMAP connector is disabled in this deployment.</p>
+      {% endif %}
+    {% elif provider.configured %}
+      <p><a class="button" href="/accounts/connect/{{ provider.provider }}">Connect</a></p>
+      {% if provider.provider == 'gmail' and not provider.durable_refresh_tokens %}
+      <p class="small warn">
+        This Google client is in "{{ provider.posture }}" posture, so the
+        connection will expire after seven days and need reconnecting.
+      </p>
+      {% endif %}
+    {% else %}
+      <p class="small bad">Not configured in this deployment.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

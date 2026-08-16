@@ -1,0 +1,35 @@
+name: Drift
+
+on:
+  schedule:
+    - cron: '17 11 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh
+      - name: Check drift
+        id: drift
+        continue-on-error: true
+        run: deploy/ccreport-azure drift > drift.txt 2>&1
+      - name: Open issue on drift
+        if: steps.drift.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body=$(cat drift.txt)
+          gh issue create --title "Azure deployment drift detected" --body "$body" --label deployment || true

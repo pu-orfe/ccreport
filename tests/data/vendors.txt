@@ -1,0 +1,4 @@
+# alias = display
+foo.example=Foo Example
+bar shop,Bar Shop
+baz.example

@@ -1,0 +1,8 @@
+From: Plain Store <plain@example.com>
+To: Faculty <faculty@princeton.edu>
+Subject: Plain text receipt
+Message-ID: <text-1@example>
+Content-Type: text/plain; charset="utf-8"
+
+Plain receipt
+Total $9.99

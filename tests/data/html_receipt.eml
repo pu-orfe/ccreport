@@ -1,0 +1,17 @@
+From: Store Receipts <receipts@store.example>
+To: Faculty <faculty@princeton.edu>
+Date: Fri, 14 Aug 2026 12:00:00 -0400
+Subject: Receipt for your purchase
+Message-ID: <receipt-1@example>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt"
+
+--alt
+Content-Type: text/plain; charset="utf-8"
+
+Receipt total $12.34
+--alt
+Content-Type: text/html; charset="utf-8"
+
+<html><body><h1>Receipt</h1><p>Total $12.34</p></body></html>
+--alt--

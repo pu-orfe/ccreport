@@ -1,0 +1,121 @@
+#!/usr/bin/env zsh
+
+# Dev-checkout launcher for ccreport.
+#
+# When installed with pip, the `ccreport` entry point is provided by the
+# package. This script is only for checkout chores and local Azure toolkit
+# delegation. Every other argument list is forwarded verbatim to the Python CLI,
+# so `./ccreport report list` and installed `ccreport report list` match.
+
+set -euo pipefail
+
+SCRIPT_DIR="${0:A:h}"
+cd "$SCRIPT_DIR"
+
+usage() {
+    echo "Usage: ./ccreport <command> [args...]" >&2
+    echo "" >&2
+    echo "Dev-checkout tasks (handled by this launcher):" >&2
+    echo "  setup                 Create .venv and install .[app,test] editable" >&2
+    echo "  test-local            Run unit and rendering tests on the host" >&2
+    echo "  test-docker           Run unit tests through docker-compose" >&2
+    echo "  test-integration      Run integration tests against the db service" >&2
+    echo "  serve                 Run the FastAPI app with reload" >&2
+    echo "  deploy                Delegate to deploy/ccreport-azure deploy" >&2
+    echo "  update                Delegate to deploy/ccreport-azure update" >&2
+    echo "  teardown              Delegate to deploy/ccreport-azure teardown" >&2
+    echo "  status                Delegate to deploy/ccreport-azure status" >&2
+    echo "  logs                  Delegate to deploy/ccreport-azure logs" >&2
+    echo "  open                  Delegate to deploy/ccreport-azure open" >&2
+    echo "" >&2
+    echo "All other arguments are forwarded to the ccreport CLI, so" >&2
+    echo "./ccreport doctor checks the application configuration." >&2
+    echo "For deployment tooling and sign-in: deploy/ccreport-azure doctor" >&2
+    echo "" >&2
+}
+
+ensure_venv() {
+    if [ ! -d ".venv" ]; then
+        echo "Virtual environment not found. Setting it up first..." >&2
+        python3 -m venv .venv >&2
+        source .venv/bin/activate
+        pip install --upgrade pip >&2
+        pip install -e ".[app,test]" >&2
+    else
+        source .venv/bin/activate
+    fi
+}
+
+require_docker_compose() {
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "[ERROR] 'docker' is not on PATH." >&2
+        exit 127
+    fi
+    if command -v docker-compose >/dev/null 2>&1; then
+        COMPOSE_CMD=(docker-compose)
+    elif docker compose version >/dev/null 2>&1; then
+        COMPOSE_CMD=(docker compose)
+    else
+        echo "[ERROR] Neither 'docker-compose' nor 'docker compose' is available." >&2
+        exit 127
+    fi
+}
+
+run_cli() {
+    python -m ccreport.cli "$@"
+}
+
+run_deploy_tool() {
+    deploy/ccreport-azure "$@"
+}
+
+if [ $# -lt 1 ]; then
+    usage
+    ensure_venv
+    run_cli || true
+    exit 0
+fi
+
+case "$1" in
+    setup)
+        echo "=== Setting up local Python Virtual Environment ===" >&2
+        python3 -m venv .venv
+        source .venv/bin/activate
+        pip install --upgrade pip
+        pip install -e ".[app,test]"
+        echo "Setup complete! Activate using: source .venv/bin/activate" >&2
+        ;;
+    test-local)
+        echo "=== Running local unit tests ===" >&2
+        ensure_venv
+        pytest tests/unit tests/render
+        ;;
+    test-docker)
+        echo "=== Running containerized unit tests via Docker Compose ===" >&2
+        require_docker_compose
+        "${COMPOSE_CMD[@]}" build unit-tests
+        "${COMPOSE_CMD[@]}" run --rm unit-tests
+        ;;
+    test-integration)
+        echo "=== Running integration tests via Docker Compose ===" >&2
+        require_docker_compose
+        "${COMPOSE_CMD[@]}" up -d db
+        "${COMPOSE_CMD[@]}" run --rm integration-tests
+        ;;
+    serve)
+        echo "=== Serving ccreport locally ===" >&2
+        ensure_venv
+        uvicorn ccreport.web.app:app --reload --host 127.0.0.1 --port 8000
+        ;;
+    # `doctor` is deliberately absent here: it is a real CLI command, and the
+    # launcher promises that `./ccreport <args>` and installed `ccreport <args>`
+    # mean the same thing. Deployment prerequisites live in
+    # `deploy/ccreport-azure doctor`.
+    deploy|update|teardown|status|logs|open)
+        run_deploy_tool "$@"
+        ;;
+    *)
+        ensure_venv
+        run_cli "$@"
+        ;;
+esac

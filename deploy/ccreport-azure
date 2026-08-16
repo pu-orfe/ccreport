@@ -1,0 +1,242 @@
+#!/usr/bin/env zsh
+# ccreport Azure deployment toolkit.
+#
+#   deploy    provision and configure; idempotent and resumable
+#   resume    the same, without re-asking questions already answered
+#   update    rebuild image and restart; no provisioning
+#   teardown  delete what the ledger created, after typed confirmation
+#   status    show the ledger beside live Azure
+#   doctor    check tools, sign-in and gates; change nothing
+#   drift     compare live configuration against the ledger
+#   logs      tail App Service logs
+#   open      open the deployed app
+#   gate ack  acknowledge a manual gate until a date
+
+set -o pipefail
+: "${CCREPORT_AZURE_LIB:="${0:A:h}/lib"}"
+source "${CCREPORT_AZURE_LIB}/boot.zsh"
+
+typeset -g CCR_VERSION="${CCR_VERSION:-0.1.0}"
+
+usage() {
+  cat <<'USAGE'
+ccreport azure <verb> [options]
+
+Setting up, updating, tearing down — the three you need:
+
+  deploy      Provision and configure. Safe to re-run; resumes from the ledger.
+  update      Rebuild the image and restart the web app. No provisioning.
+  teardown    Delete the resource group after typed confirmation.
+
+  Start with:  deploy/ccreport-azure doctor    (checks tooling and sign-in, changes nothing)
+  Rehearse:    deploy/ccreport-azure deploy --dry-run
+
+Also available
+  doctor      Check tooling, sign-in and manual gates. Changes nothing.
+  status      Show ledger and live resource status.
+  resume      Continue an interrupted deploy without re-asking recorded prompts.
+  drift       Report live configuration that moved away from the ledger.
+  logs        Tail App Service logs.
+  open        Open the web app in a browser.
+  gate ack    Acknowledge a manual gate until a date.
+
+Options
+  --dry-run           Print Azure/GitHub commands; run none
+  --yes, -y           Non-interactive. Manual gates fail fast unless dry-run.
+  --location REGION   Azure region (default from app.conf, then eastus)
+  --app NAME          Application name (default from deploy/app.conf)
+  --prefix P          Resource-name prefix (default ccr)
+  --state PATH        Ledger path (default .ccreport/state.json)
+  --no-reprompt       Reuse recorded answers without asking
+  --verbose, -v       Echo each az invocation
+USAGE
+}
+
+ccr_setup() {
+  ccr_conf_load "deploy/app.conf"
+  typeset -g CCR_APP="${CCR_APP:-$(ccr_conf_get name ccreport)}"
+  typeset -g CCR_IMAGE="$(ccr_conf_get image "$CCR_APP")"
+  typeset -g CCR_HEALTH_PATH="$(ccr_conf_get health_path /healthz)"
+  typeset -g CCR_LOCATION="${CCR_LOCATION:-$(ccr_state_get azure.location "$(ccr_conf_get location_default eastus)")}"
+  ccr_state_init "$CCR_APP"
+
+  local rid seed
+  seed="${CCR_APP}-${CCR_LOCATION}-${CCR_PREFIX}"
+  rid="$(ccr_random_id "$seed")"
+  typeset -g CCR_RG="$(ccr_state_get names.resourceGroup "$(ccr_name rg "$CCR_APP" rg)")"
+  typeset -g CCR_PLAN="$(ccr_state_get names.plan "$(ccr_name plan "$CCR_APP" plan)")"
+  typeset -g CCR_ACR="$(ccr_state_get names.registry "$(ccr_name acr "$CCR_APP" "$rid")")"
+  typeset -g CCR_WEBAPP="$(ccr_state_get names.webApp "$(ccr_name webapp "$CCR_APP" web "$rid")")"
+  typeset -g CCR_IDENTITY="$(ccr_state_get names.identity "$(ccr_name identity "$CCR_APP" mi)")"
+  typeset -g CCR_STORAGE="$(ccr_state_get names.storage "$(ccr_name storage "$CCR_APP" "$rid")")"
+  typeset -g CCR_DB_SERVER="$(ccr_state_get names.database "$(ccr_name db "$CCR_APP" db "$rid")")"
+  typeset -g CCR_KEYVAULT="$(ccr_state_get names.keyVault "$(ccr_name keyvault "$CCR_APP" kv "$rid")")"
+  typeset -g CCR_IMAGE_TAG="${GITHUB_SHA:-$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
+
+  if (( CCR_DRY_RUN )); then
+    typeset -g CCR_SUBSCRIPTION="${CCR_SUBSCRIPTION:-<subscription-id>}"
+    typeset -g CCR_TENANT="${CCR_TENANT:-<tenant-id>}"
+  else
+    ccr_require_login
+    typeset -g CCR_SUBSCRIPTION="$(az account show --query id -o tsv)"
+    typeset -g CCR_TENANT="$(az account show --query tenantId -o tsv)"
+  fi
+
+  ccr_state_set app "$CCR_APP"
+  ccr_state_set azure.location "$CCR_LOCATION"
+  ccr_state_set azure.subscription "$CCR_SUBSCRIPTION"
+  ccr_state_set azure.tenant "$CCR_TENANT"
+  ccr_state_set names.resourceGroup "$CCR_RG"
+  ccr_state_set names.plan "$CCR_PLAN"
+  ccr_state_set names.registry "$CCR_ACR"
+  ccr_state_set names.webApp "$CCR_WEBAPP"
+  ccr_state_set names.identity "$CCR_IDENTITY"
+  ccr_state_set names.storage "$CCR_STORAGE"
+  ccr_state_set names.database "$CCR_DB_SERVER"
+  ccr_state_set names.keyVault "$CCR_KEYVAULT"
+}
+
+ccr_print_plan() {
+  ccr_heading "${CCR_APP} Azure plan"
+  print -r -- "  resource group  ${CCR_RG}"
+  print -r -- "  location        ${CCR_LOCATION}"
+  print -r -- "  registry        ${CCR_ACR}.azurecr.io"
+  print -r -- "  image           ${CCR_IMAGE}:${CCR_IMAGE_TAG}"
+  print -r -- "  plan            ${CCR_PLAN} ($(ccr_conf_get app_service_plan_sku B1))"
+  print -r -- "  web app         ${CCR_WEBAPP}"
+  print -r -- "  identity        ${CCR_IDENTITY}"
+  print -r -- "  storage         ${CCR_STORAGE} / $(ccr_conf_get blob_container ccreport-artifacts)"
+  print -r -- "  postgres        ${CCR_DB_SERVER} ($(ccr_conf_get postgres_sku Standard_B1ms), $(ccr_conf_get postgres_storage_gb 32)GB)"
+  print -r -- "  key vault       ${CCR_KEYVAULT}"
+  print -r -- "  ledger          ${CCR_STATE_FILE}"
+  (( CCR_DRY_RUN )) && print -r -- "  ${CCR_C_YELLOW}dry run — commands are printed, not executed${CCR_C_RESET}"
+}
+
+cmd_deploy() {
+  ccr_setup
+  ccr_print_plan
+  ccr_state_history deploy
+  ccr_steps_load
+  ccr_blank
+  if ! (( CCR_ASSUME_YES || CCR_NO_REPROMPT )); then ccr_confirm "Go ahead?" y || { ccr_info "Nothing done."; return 0; }; fi
+  ccr_blank
+  local rc=0
+  ccr_steps_run || rc=$?
+  ccr_blank; ccr_heading "Ledger"; ccr_steps_report
+  if (( rc == 0 )); then
+    ccr_blank; ccr_ok "ccreport deployment flow complete."
+    print -r -- "   https://${CCR_WEBAPP}.azurewebsites.net"
+    print -r -- "   Next: confirm Easy Auth with OIT before opening access to users."
+  fi
+  return $rc
+}
+
+cmd_resume() { CCR_NO_REPROMPT=1; cmd_deploy; }
+
+cmd_update() {
+  ccr_setup
+  ccr_heading "Updating ${CCR_APP}"
+  ccr_state_history update
+  local previous="$(ccr_state_get names.image "")"
+  [[ -n "$previous" ]] && ccr_state_set names.previousImage "$previous"
+  ccr_az acr build --registry "$CCR_ACR" --image "${CCR_IMAGE}:latest" --image "${CCR_IMAGE}:${CCR_IMAGE_TAG}" --build-arg INSTALL_PLAYWRIGHT=true --file Dockerfile . -o none
+  ccr_az webapp config container set --resource-group "$CCR_RG" --name "$CCR_WEBAPP" --container-image-name "${CCR_ACR}.azurecr.io/${CCR_IMAGE}:${CCR_IMAGE_TAG}" -o none
+  ccr_az webapp restart --resource-group "$CCR_RG" --name "$CCR_WEBAPP" -o none
+  ccr_state_set names.image "${CCR_ACR}.azurecr.io/${CCR_IMAGE}:${CCR_IMAGE_TAG}"
+  ccr_ok "Update submitted."
+}
+
+cmd_teardown() {
+  ccr_setup
+  ccr_heading "Teardown"
+  ccr_warn "This deletes ${CCR_RG} and every resource inside it."
+  if ! (( CCR_ASSUME_YES )); then
+    local typed
+    print -n -- "Type the web app name (${CCR_WEBAPP}) to confirm: "
+    read -r typed || typed=""
+    [[ "$typed" == "$CCR_WEBAPP" ]] || { ccr_info "Names did not match. Nothing deleted."; return 1; }
+  fi
+  ccr_state_history teardown
+  ccr_az group delete --name "$CCR_RG" --yes --no-wait -o none
+  ccr_ok "Deletion started for ${CCR_RG}. Ledger retained at ${CCR_STATE_FILE}."
+}
+
+cmd_status() {
+  ccr_setup
+  ccr_print_plan
+  ccr_blank; ccr_heading "Ledger"; ccr_steps_report
+  (( CCR_DRY_RUN )) && return 0
+  ccr_blank; ccr_heading "Live"
+  ccr_az group show --name "$CCR_RG" --query "{name:name, location:location}" -o table || true
+  ccr_az webapp show --resource-group "$CCR_RG" --name "$CCR_WEBAPP" --query "{state:state, host:defaultHostName}" -o table || true
+}
+
+cmd_doctor() {
+  ccr_heading "Environment"
+  local ok=1 tool
+  for tool in python3 git az gh docker curl; do
+    if command -v "$tool" >/dev/null 2>&1; then ccr_ok "$tool"; else ccr_warn "$tool missing"; ok=0; fi
+  done
+  ccr_az_version_check
+  ccr_setup
+  ccr_heading "Deployment"
+  ccr_print_plan
+  ccr_heading "Gates"
+  if ccr_verify_easy_auth; then ccr_ok "easy-auth enforced"; else ccr_warn "easy-auth is not verified yet"; fi
+  (( ok || CCR_DRY_RUN )) || return 1
+}
+
+cmd_drift() {
+  ccr_setup
+  ccr_require_login
+  ccr_heading "Drift"
+  local drifted=0
+  ccr_verify_easy_auth || { ccr_err "Easy Auth is not enforced."; drifted=1; }
+  local live_workers
+  live_workers="$(ccr_az_query webapp config show --resource-group "$CCR_RG" --name "$CCR_WEBAPP" --query numberOfWorkers -o tsv)"
+  [[ -n "$live_workers" && "$live_workers" != "1" ]] && { ccr_warn "Worker count is ${live_workers}; expected 1 until multi-instance safety is proven."; drifted=1; }
+  (( drifted )) && return 1
+  ccr_ok "No high-confidence drift detected."
+}
+
+cmd_gate() {
+  local action="${CCR_ARGS[1]:-}" gate_id="${CCR_ARGS[2]:-}"
+  [[ "$action" == "ack" && -n "$gate_id" ]] || ccr_die "Usage: deploy/ccreport-azure gate ack <id> --until YYYY-MM-DD --reason '<ticket>'"
+  [[ -n "${CCR_GATE_UNTIL:-}" && -n "${CCR_GATE_REASON:-}" ]] || ccr_die "--until and --reason are required."
+  ccr_setup
+  ccr_gate_ack "$gate_id" "$CCR_GATE_UNTIL" "$CCR_GATE_REASON"
+  ccr_ok "${gate_id} acknowledged until ${CCR_GATE_UNTIL}."
+}
+
+cmd_logs() { ccr_setup; ccr_az webapp log tail --resource-group "$CCR_RG" --name "$CCR_WEBAPP"; }
+
+cmd_open() {
+  ccr_setup
+  local url="https://${CCR_WEBAPP}.azurewebsites.net"
+  if command -v open >/dev/null 2>&1; then open "$url" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 || true
+  fi
+  ccr_ok "$url"
+}
+
+main() {
+  local verb="${1:-}"
+  [[ -z "$verb" || "$verb" == (-h|--help|help) ]] && { usage; return 0; }
+  shift
+  ccr_parse_common_flags "$@"
+  case "$verb" in
+    deploy) cmd_deploy ;;
+    resume) cmd_resume ;;
+    update) cmd_update ;;
+    teardown) cmd_teardown ;;
+    status) cmd_status ;;
+    doctor) cmd_doctor ;;
+    drift) cmd_drift ;;
+    logs) cmd_logs ;;
+    open) cmd_open ;;
+    gate) cmd_gate ;;
+    *) ccr_err "Unknown verb: ${verb}"; usage; return 2 ;;
+  esac
+}
+
+main "$@"

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}ccreport{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="/">ccreport</a>
+  <nav>
+    <a href="/">Reports</a>
+    <a href="/accounts">Mailboxes</a>
+    {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
+  </nav>
+  <div class="who">{{ user.display_name or user.upn }}{% if is_admin %} <span class="tag">admin</span>{% endif %}</div>
+</header>
+
+{% if is_dev_principal %}
+<div class="banner dev">Signed in through the local development bypass, not Entra. This is refused on Azure.</div>
+{% endif %}
+{% if message %}<div class="banner ok">{{ message }}</div>{% endif %}
+{% if error %}<div class="banner bad">{{ error }}</div>{% endif %}
+
+<main>
+{% block content %}{% endblock %}
+</main>
+
+<footer>
+  ccreport {{ version }} &middot; mail is read-only and browsing is never stored &middot;
+  <a href="https://github.com/pu-orfe/ccreport">source</a>
+</footer>
+</body>
+</html>

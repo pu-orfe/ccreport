@@ -220,6 +220,15 @@ class MailConnector(Protocol):
         """Return headers matching ``query``. Never returns bodies."""
         ...
 
+    def attachment_refs(self, message_id: str) -> list[AttachmentRef]:
+        """List what is attached to one message, without downloading any of it.
+
+        Submission re-reads this rather than trusting what browsing saw: a
+        message can be edited or replaced between selection and submission, and
+        the bundle must describe the mailbox as it is when the report is frozen.
+        """
+        ...
+
     def fetch_body(self, message_id: str) -> MessageBody:
         """Fetch the body of one message, for rendering."""
         ...

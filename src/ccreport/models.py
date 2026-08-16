@@ -131,6 +131,11 @@ class MailAccount(TimestampMixin, Base):
     #: A 'testing' connection will die after seven days and we should say so.
     posture: Mapped[str | None] = mapped_column(String(24), default=None)
 
+    #: Where an IMAP mailbox lives. Columns rather than something parsed back out
+    #: of ``status_detail``, which is free text that ``account test`` rewrites.
+    imap_host: Mapped[str | None] = mapped_column(String(255), default=None)
+    imap_port: Mapped[int | None] = mapped_column(Integer, default=None)
+
     connected_at: Mapped[_dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -217,6 +222,9 @@ class Report(TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("status in ('draft','submitted')", name="ck_reports_status"),
         CheckConstraint("period_month between 1 and 12", name="ck_reports_period_month"),
+        # One report per person per month. Enforced here as well as in
+        # `create_report`, because two concurrent requests can both find nothing.
+        UniqueConstraint("user_id", "period_year", "period_month", name="uq_reports_user_period"),
         Index("ix_reports_period", "period_year", "period_month"),
     )
 

@@ -171,6 +171,19 @@ class Settings(BaseSettings):
                 "deployed environment; set CCREPORT_KEYVAULT_URL instead."
             )
 
+        # Without a session secret nothing can be signed: OAuth state becomes an
+        # unauthenticated parameter and the web forms lose their CSRF token. Both
+        # fail open rather than loudly, which is the wrong way round for a
+        # deployment, so refuse to boot instead.
+        if not self.session_secret and (
+            os.environ.get("WEBSITE_SITE_NAME") or self.environment.strip().lower() in {"production", "prod"}
+        ):
+            raise ConfigError(
+                "CCREPORT_SESSION_SECRET is required in a deployed environment. "
+                "Without it, OAuth state cannot be signed and web forms carry no "
+                "CSRF token. Set it to 32+ random bytes of hex."
+            )
+
         # gmail.readonly is a restricted scope. An unverified External client
         # caps at 100 users and expires refresh tokens after 7 days, which for
         # personal accounts means faculty re-authorising every week — a failure

@@ -1,0 +1,7 @@
+From: Bad Store <bad@example.com>
+To: Faculty <faculty@princeton.edu>
+Subject: Hostile receipt
+Message-ID: <hostile-1@example>
+Content-Type: text/html; charset="utf-8"
+
+<html><body><script>alert('x')</script><img src="cid:missing" onerror="steal()"><p onclick="bad()">Safe total $1.00</p></body></html>

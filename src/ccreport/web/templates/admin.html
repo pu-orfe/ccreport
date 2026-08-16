@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Admin — ccreport{% endblock %}
+{% block content %}
+
+<h1>Submitted reports</h1>
+<p class="muted">
+  Drafts are not listed. An unsubmitted report is somebody's working state, and
+  reading it would make this a surveillance tool rather than a handoff.
+</p>
+
+<form method="get" action="/admin" class="filters">
+  <label>Person <input type="search" name="upn" value="{{ filters.upn }}" placeholder="ada@princeton.edu"></label>
+  <label>Month <input type="text" name="month" value="{{ filters.month }}" placeholder="YYYY-MM" pattern="\d{4}-\d{2}"></label>
+  <button type="submit">Filter</button>
+</form>
+
+{% if rows %}
+<table>
+  <thead><tr><th>Person</th><th>Month</th><th>Receipts</th><th>Files</th><th>Submitted</th><th>Bundle</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td>{{ row.user }}</td>
+      <td>{{ row.period_label }}</td>
+      <td class="num">{{ row['items'] }}</td>
+      <td class="num">{{ row.artifacts }}</td>
+      <td class="small">{{ (row.submitted_at or '')[:19] }}</td>
+      <td><a href="/admin/reports/{{ row.user }}/{{ row.period }}/bundle.zip">download .zip</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No submitted reports match.</p>
+{% endif %}
+
+<h2>Access list</h2>
+<p class="muted">
+  An empty access list denies everyone, including validly authenticated Entra
+  principals. Seeded entries come from deployment settings and are reconciled on
+  restart; entries added here are not.
+</p>
+
+<table>
+  <thead><tr><th>Principal</th><th>Role</th><th>Source</th><th>Note</th><th></th></tr></thead>
+  <tbody>
+  {% for row in allowed %}
+    <tr>
+      <td>{{ row.upn }}</td>
+      <td>{{ row.role }}</td>
+      <td class="small muted">{{ 'seeded from settings' if row.seeded else 'added here' }}</td>
+      <td class="small">{{ row.note or '' }}</td>
+      <td class="actions">
+        <form method="post" action="/admin/allow"
+              onsubmit="return confirm('Remove {{ row.upn }} from the access list?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="remove">
+          <input type="hidden" name="upn" value="{{ row.upn }}">
+          <button type="submit" class="danger">Remove</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<form method="post" action="/admin/allow" class="filters">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="action" value="add">
+  <label>Principal <input type="email" name="upn" required placeholder="ada@{{ settings.required_email_domain }}"></label>
+  <label>Role
+    <select name="role"><option value="faculty">faculty</option><option value="admin">admin</option></select>
+  </label>
+  <label>Note <input type="text" name="note"></label>
+  <button type="submit">Add</button>
+</form>
+
+{% endblock %}

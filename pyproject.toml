@@ -93,7 +93,7 @@ packages = ["src/ccreport"]
 artifacts = [
     "src/ccreport/web/static/**",
     "src/ccreport/web/templates/**",
-    "src/ccreport/auth/templates/**",
+    "src/ccreport/templates/**",
     "src/ccreport/migrations/**",
 ]
 
@@ -112,7 +112,7 @@ include = [
 [tool.pytest.ini_options]
 addopts = "-q --strict-markers"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 markers = [
     "live: hits a real provider; requires credentials and is skipped by default",
 ]

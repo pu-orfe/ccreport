@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ccreport — {{ manifest.user.upn }} — {{ manifest.period }}</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 12px; color: #111; margin: 24px; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .meta { color: #555; margin-bottom: 18px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f2f2f2; }
+  td.num { text-align: right; white-space: nowrap; }
+  .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+  .missing { color: #a00; font-style: italic; }
+  tfoot td { font-weight: 600; background: #fafafa; }
+  @media print { body { margin: 0; } a { color: inherit; text-decoration: none; } }
+</style>
+</head>
+<body>
+<h1>Receipts for {{ manifest.period_label }}</h1>
+<div class="meta">
+  {{ manifest.user.display_name or manifest.user.upn }} ({{ manifest.user.upn }}) &middot;
+  {{ manifest.totals.items }} receipt{{ '' if manifest.totals.items == 1 else 's' }},
+  {{ manifest.totals.artifacts }} file{{ '' if manifest.totals.artifacts == 1 else 's' }} &middot;
+  {% if manifest.report.submitted_at %}submitted {{ manifest.report.submitted_at[:19] }} UTC{% else %}draft{% endif %} &middot;
+  generated {{ manifest.generated_at[:19] }} UTC
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:3%">#</th>
+      <th style="width:10%">Date</th>
+      <th style="width:16%">Vendor</th>
+      <th style="width:10%">Amount</th>
+      <th style="width:25%">Subject</th>
+      <th style="width:24%">Justification</th>
+      <th style="width:12%">File</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for item in manifest['items'] %}
+    <tr>
+      <td class="num">{{ item.index }}</td>
+      <td>{{ (item.date or '')[:10] }}</td>
+      <td>{{ item.vendor or '' }}</td>
+      <td class="num">{% if item.amount %}{{ item.amount }} {{ item.currency or '' }}{% endif %}</td>
+      <td>{{ item.subject or '' }}<br><span class="meta">{{ item['from'] or '' }}</span></td>
+      <td>{% if item.justification %}{{ item.justification }}{% else %}<span class="missing">none recorded</span>{% endif %}</td>
+      <td class="file">
+        {% for artifact in item.artifacts %}<a href="{{ artifact.file }}">{{ artifact.file[9:] }}</a><br>{% else %}<span class="missing">no file</span>{% endfor %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+  {% if manifest.totals.currency %}
+  <tfoot>
+    <tr>
+      <td colspan="3">Total</td>
+      <td class="num">{{ manifest.totals.amount }} {{ manifest.totals.currency }}</td>
+      <td colspan="3">Amounts are extracted from message text and are a hint, not an authority.</td>
+    </tr>
+  </tfoot>
+  {% endif %}
+</table>
+</body>
+</html>

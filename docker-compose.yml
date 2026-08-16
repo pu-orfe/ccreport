@@ -1,0 +1,71 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ccreport
+      POSTGRES_USER: ccreport
+      POSTGRES_PASSWORD: ccreport_dev_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ccreport -d ccreport"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - ccreport-db:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      args:
+        INSTALL_PLAYWRIGHT: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      CCREPORT_ENVIRONMENT: development
+      CCREPORT_DATABASE_URL: postgresql+psycopg://ccreport:ccreport_dev_password@db:5432/ccreport
+      CCREPORT_BASE_URL: http://localhost:8000
+      CCREPORT_ALLOWED_PRINCIPALS: ${CCREPORT_ALLOWED_PRINCIPALS:-}
+      CCREPORT_ADMIN_PRINCIPALS: ${CCREPORT_ADMIN_PRINCIPALS:-}
+      CCREPORT_SESSION_SECRET: ${CCREPORT_SESSION_SECRET:-dev-only-change-me}
+      CCREPORT_DEV_PRINCIPAL: ${CCREPORT_DEV_PRINCIPAL:-}
+      CCREPORT_DEV_ENCRYPTION_KEY: ${CCREPORT_DEV_ENCRYPTION_KEY:-}
+      CCREPORT_LOCAL_ARTIFACT_DIR: /app/.ccreport/artifacts
+    command: ["uvicorn", "ccreport.web.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+
+  # The unit suite: no network, no credentials, no database. The source tree is
+  # mounted so the tests being run are the ones in the checkout.
+  unit-tests:
+    build:
+      context: .
+      target: test
+      args:
+        INSTALL_PLAYWRIGHT: "false"
+    command: ["pytest", "-p", "no:cacheprovider", "tests/unit", "tests/render"]
+    environment:
+      CCREPORT_ENVIRONMENT: test
+    volumes:
+      - .:/app
+
+  integration-tests:
+    build:
+      context: .
+      target: test
+      args:
+        INSTALL_PLAYWRIGHT: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["pytest", "-p", "no:cacheprovider", "tests/integration"]
+    environment:
+      CCREPORT_ENVIRONMENT: test
+      CCREPORT_DATABASE_URL: postgresql+psycopg://ccreport:ccreport_dev_password@db:5432/ccreport
+    volumes:
+      - .:/app
+
+volumes:
+  ccreport-db:

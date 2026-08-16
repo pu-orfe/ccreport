@@ -1,0 +1,19 @@
+From: Store <store@example.com>
+To: Faculty <faculty@princeton.edu>
+Subject: Receipt with logo
+Message-ID: <cid-1@example>
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="rel"
+
+--rel
+Content-Type: text/html; charset="utf-8"
+
+<html><body><p>Logo follows</p><img src="cid:logo1"></body></html>
+--rel
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+Content-ID: <logo1>
+Content-Disposition: inline; filename="logo.png"
+
+iVBORw0KGgo=
+--rel--

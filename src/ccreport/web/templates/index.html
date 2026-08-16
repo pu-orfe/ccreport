@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Reports — ccreport{% endblock %}
+{% block content %}
+
+<h1>Your months</h1>
+<p class="muted">
+  Pick a month, mark the messages that are receipts, say why each one was spent,
+  and submit. Everything after that is fixed format.
+</p>
+
+{% if not accounts %}
+<div class="banner bad">
+  No mailbox is connected yet. <a href="/accounts">Connect one</a> before browsing —
+  connecting is separate from signing in, and you can disconnect it yourself at any time.
+</div>
+{% endif %}
+
+<div class="months">
+  {% for period in periods %}
+    {% set existing = reports | selectattr("period", "equalto", period) | first %}
+    <a class="month {% if existing and existing.status == 'submitted' %}done{% elif existing %}draft{% endif %}"
+       href="/reports/{{ period }}">
+      <span class="label">{{ period | period_label }}</span>
+      {% if existing %}
+        <span class="state">{{ existing.status }} &middot; {{ existing.items }} receipt{{ '' if existing.items == 1 else 's' }}</span>
+        {% if existing.unjustified %}<span class="warn">{{ existing.unjustified }} unjustified</span>{% endif %}
+      {% else %}
+        <span class="state muted">not started</span>
+      {% endif %}
+    </a>
+  {% endfor %}
+</div>
+
+<h2>Submitted</h2>
+{% set submitted = reports | selectattr("status", "equalto", "submitted") | list %}
+{% if submitted %}
+<table>
+  <thead><tr><th>Month</th><th>Receipts</th><th>Files</th><th>Submitted</th><th>Bundle</th></tr></thead>
+  <tbody>
+  {% for report in submitted %}
+    <tr>
+      <td>{{ report.period_label }}</td>
+      <td class="num">{{ report.items }}</td>
+      <td class="num">{{ report.artifacts }}</td>
+      <td>{{ (report.submitted_at or '')[:19] }}</td>
+      <td><a href="/reports/{{ report.period }}/bundle.zip">download .zip</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Nothing submitted yet.</p>
+{% endif %}
+
+<h2>Connected mailboxes</h2>
+{% if accounts %}
+<ul class="plain">
+  {% for account in accounts %}
+    <li>
+      <strong>{{ account.address }}</strong>
+      <span class="muted">{{ account.provider }}</span>
+      <span class="tag {{ 'bad' if account.status != 'connected' }}">{{ account.status }}</span>
+    </li>
+  {% endfor %}
+</ul>
+{% endif %}
+<p><a href="/accounts">Manage mailboxes</a></p>
+
+{% endblock %}
